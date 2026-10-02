@@ -13,7 +13,7 @@ test('HTTP rejects unauthenticated, cross-origin, and forged-host mutations', as
   const port = 4197, base = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ['server.mjs'], {
     cwd: fileURLToPath(new URL('../', import.meta.url)),
-    env: { ...process.env, PORT: String(port), CONVOX_MODE: 'simulation', CONVOX_DATA_DIR: dataDir },
+    env: { ...process.env, PORT: String(port), CONVOX_MODE: 'simulation', CONVOX_DATA_DIR: dataDir, CONVOX_PUBLIC_ORIGIN: 'https://10.3.0.150' },
     windowsHide: true, stdio: 'pipe'
   });
   let stderr = ''; child.stderr.on('data', chunk => stderr += chunk);
@@ -48,4 +48,11 @@ test('HTTP rejects unauthenticated, cross-origin, and forged-host mutations', as
   const observed = await fetch(`${base}/api/state`, { headers: { 'X-Console-Token': session.token } }).then(r => r.json());
   assert.equal(observed.mode, 'simulation');
   assert.equal(observed.audit[0].event, 'Simulated production outage');
+  const proxied = await new Promise((resolve, reject) => {
+    const request = http.request(`${base}/api/refresh`, {
+      method: 'POST', headers: { Host: '10.3.0.150', Origin: 'https://10.3.0.150', 'X-Console-Token': session.token, 'Content-Type': 'application/json' }
+    }, response => { response.resume(); resolve(response.statusCode); });
+    request.on('error', reject); request.end('{}');
+  });
+  assert.equal(proxied, 200, 'Nginx-style Host and Origin can perform an authenticated request');
 });

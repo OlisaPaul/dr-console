@@ -1,0 +1,25 @@
+[Unit]
+Description=ConVox recovery management console
+After=network.target
+
+[Service]
+Type=simple
+User=convoxconsole
+Group=convoxconsole
+WorkingDirectory=/opt/convox-dr-console
+EnvironmentFile=/etc/convox-console/console.env
+ExecStart=/usr/bin/node /opt/convox-dr-console/server.mjs
+Restart=on-failure
+RestartSec=5
+StateDirectory=convox-dr-console
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/convox-dr-console
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
