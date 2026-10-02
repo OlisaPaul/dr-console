@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>ConVox · Recovery console</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to console</a>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="ConVox recovery console"><span class="brand-icon">C<span></span></span><span>ConVox<small>RECOVERY CONSOLE</small></span></a>
+    <div class="nav-label">WORKSPACE</div>
+    <nav aria-label="Console navigation">
+      <button class="nav active" data-view="overview"><span>▦</span> Overview</button>
+      <button class="nav" data-view="operations"><span>⇄</span> Operations</button>
+      <button class="nav" data-view="audit"><span>≡</span> Audit history</button>
+      <button class="nav" data-view="settings"><span>⚙</span> Connection setup</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="status-dot"></span> Local management console<small>Run independently of both servers</small></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><span>Infrastructure <span class="slash">/</span> Disaster recovery</span><span class="operator"><span class="avatar">OP</span> Local operator</span></header>
+    <main id="main" tabindex="-1"><div class="loading">Connecting to the local console…</div></main>
+    <footer>ConVox Recovery Console <span>Database replication does not replace independent backups.</span></footer>
+  </div>
+  <dialog id="confirmation" aria-labelledby="confirm-title">
+    <form id="confirm-form">
+      <div class="dialog-icon">⇄</div>
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-description"></p>
+      <ol id="confirm-steps"></ol>
+      <label id="outage-label" class="acknowledge" hidden><input type="checkbox" id="outage-accepted"> I accept that transactions or recordings not received before the outage may be missing.</label>
+      <label for="confirm-input">Type <strong id="confirm-phrase"></strong> to continue</label>
+      <input id="confirm-input" autocomplete="off" spellcheck="false" required>
+      <p id="confirm-error" class="error-text" role="alert"></p>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="cancel">Cancel</button><button type="submit" class="button primary" id="submit-operation" disabled>Run operation</button></div>
+    </form>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

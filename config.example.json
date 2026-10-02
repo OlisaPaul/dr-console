@@ -1,0 +1,5 @@
+{
+  "executable": "/usr/local/libexec/convox-ha-hook",
+  "args": [],
+  "timeoutMs": 1800000
+}
