@@ -1,149 +1,127 @@
-# Publish the console through Nginx on DR
+# Install the recovery console on archival
 
-The prepared endpoint is `https://10.3.0.150` (TLS port 443). Nginx authenticates operators and proxies to the Node backend at `127.0.0.1:4180`. Apache can keep port 80 for the existing ConVox application. Node's port is never opened to the network.
+Management endpoint: **https://10.3.0.151** on port 443. Production remains **10.81.0.11** and DR remains **10.3.0.150**. These instructions assume archival runs RHEL. Do not run this installer unchanged on Ubuntu.
 
-This installs the **simulation prototype**. It does not configure actual failover/replication hooks. Hosting it on DR is useful for the current test phase, but if DR or its Nginx service is stopped, this endpoint is unavailable. Deploy the management controller independently of both servers before relying on it for operational recovery. Never stop the management controller as part of application fencing.
+This is the **simulation prototype**: it does not connect to, restore or promote either managed server. The independent management host avoids losing the console when ConVox services are fenced, but archival itself remains a single point of failure. Never include its console or Nginx in production/DR fencing.
 
-## 1. Upload
-
-From the Windows workspace, the deployment ZIP contains application code, tests and deployment files, and excludes local demo state, real configuration, credentials and screenshots:
+## 1. Upload from Windows
 
 ```powershell
-scp C:\Users\DEEPIJA\Documents\ConVoxCCS\dr-console\artifacts\convox-dr-console-deploy.zip root@10.3.0.150:/root/
+scp C:\Users\DEEPIJA\Documents\ConVoxCCS\dr-console\artifacts\convox-dr-console-deploy.zip root@10.3.0.151:/root/
 ```
 
-Use the SSH account you normally administer DR with if root SSH is disabled. All subsequent commands run on DR as root.
+Use your normal archival SSH account if root SSH is disabled. Move the package to /root/ using sudo. Run remaining commands **on archival as root**, not on either managed server.
 
-## 2. Check prerequisites and existing listeners
+## 2. Prerequisites
 
 ```bash
 cat /etc/redhat-release
 node --version
 command -v node
+ip -4 -br address
+ss -lntp | grep -E ':(443|4180|8443)[[:space:]]'
+dnf install nginx httpd-tools openssl unzip curl
 nginx -t
-ss -lntp | grep -E ':(80|443|4180|8443)[[:space:]]'
 ```
 
-Requires Node.js >=22 at `/usr/bin/node`, Nginx, OpenSSL, unzip and `htpasswd`. RHEL's exact Node.js module availability depends on the OS minor release and enabled repositories. Inspect `dnf module list nodejs` and install an available supported >=22 stream using your normal RHEL package procedure. Do not copy the Windows Node binary onto Linux.
+Requires Node.js >=22 at /usr/bin/node. Inspect `dnf module list nodejs` and install an available supported >=22 stream through your approved RHEL repositories; do not copy Windows Node binaries onto Linux. The installer requires /etc/nginx/conf.d/*.conf included in the Nginx http context and free ports 443 and 4180. Fix existing syntax errors first and keep backups outside included directories. Do not stop unrelated services just to free a port.
 
-Install missing utilities through the approved RHEL repositories:
-
-```bash
-dnf install nginx httpd-tools openssl unzip
-```
-
-The previously observed backup `/etc/nginx/sites-enabled/default.bak.2026-09-25_043517` must be moved outside all included configuration directories if it still causes duplicate-default errors. Existing Nginx syntax must pass before installing the console. The installer refuses occupied TLS ports rather than replacing existing virtual hosts. If port 443 is in use, choose 8443 as described below, or review the existing web configuration before merging a new endpoint.
-
-## 3. Provision TLS and operator login
+## 3. TLS and operator login
 
 ```bash
 install -d -m 0750 -o root -g nginx /etc/nginx/convox-console
 ```
 
-Preferred: obtain an internal-CA certificate with the IP subject alternative name `10.3.0.150`, and place its certificate chain at `/etc/nginx/convox-console/server.crt` and private key at `/etc/nginx/convox-console/server.key`.
+Preferred: provision an internal-CA certificate with IP SAN **10.3.0.151**, placing the chain at /etc/nginx/convox-console/server.crt and the private key at /etc/nginx/convox-console/server.key.
 
-For a private test environment, you may generate a temporary self-signed certificate:
+For private testing only, generate a temporary self-signed certificate. Run this only if these files do not already exist; do not overwrite an existing certificate or private key:
 
 ```bash
-openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 \
-  -keyout /etc/nginx/convox-console/server.key \
-  -out /etc/nginx/convox-console/server.crt \
-  -subj '/CN=10.3.0.150' \
-  -addext 'subjectAltName=IP:10.3.0.150'
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 -keyout /etc/nginx/convox-console/server.key -out /etc/nginx/convox-console/server.crt -subj '/CN=10.3.0.151' -addext 'subjectAltName=IP:10.3.0.151'
+openssl x509 -in /etc/nginx/convox-console/server.crt -noout -fingerprint -sha256
 ```
 
-Ensure the certificate is trusted on your management PC through your normal certificate process before browser use. A self-signed certificate is not automatically trusted. Inspect its fingerprint locally and verify the installed certificate; do not disable certificate validation.
+Verify the fingerprint through a trusted administration channel and trust the certificate on your management PC using your normal certificate process. Do not disable verification. Distribute only the certificate, never the private key.
 
-Create the initial operator login; `htpasswd` prompts for the password, so it never appears in command history:
+For a **new** operator password file:
 
 ```bash
 htpasswd -cB /etc/nginx/convox-console/operators.htpasswd operator
-chmod 600 /etc/nginx/convox-console/server.key
+chmod 0600 /etc/nginx/convox-console/server.key
 chown root:nginx /etc/nginx/convox-console/operators.htpasswd
-chmod 640 /etc/nginx/convox-console/operators.htpasswd
+chmod 0640 /etc/nginx/convox-console/operators.htpasswd
 ```
 
-Use `-c` only when creating a NEW password file. For later operators use `htpasswd -B /etc/nginx/convox-console/operators.htpasswd username` to preserve existing accounts. Every console request, including the session API, is protected by Nginx login. The browser session token is an additional CSRF boundary, not a substitute for operator authentication.
+Use -c only for a NEW password file. To preserve existing operators, use `htpasswd -B /etc/nginx/convox-console/operators.htpasswd username`. Every static/API request requires Nginx login; the application session token additionally protects against cross-site requests.
 
-## 4. Install the code and service
+## 4. Install
+
+Use a new empty extraction directory; do not extract over an existing package:
 
 ```bash
 install -d -m 0700 /root/convox-console-package
 unzip /root/convox-dr-console-deploy.zip -d /root/convox-console-package
 bash /root/convox-console-package/deploy/install-rhel.sh
+systemctl enable nginx
 ```
 
-The initial installer refuses existing application/config files and preserves them. It creates a dedicated non-login service user, installs code root-owned under `/opt/convox-dr-console`, keeps state in `/var/lib/convox-dr-console`, and runs only the simulation backend. It validates Nginx before reloading. It leaves firewall and SELinux network policy changes to your explicit administration step below. Do not repeatedly rerun it to update an existing controller.
+The initial installer refuses existing controller/configuration files. It creates a non-login convoxconsole account, root-owned code at /opt/convox-dr-console and private state at /var/lib/convox-dr-console. Nginx proxies HTTPS requests to **127.0.0.1:4180**. No SSH keys or real-server hooks are installed.
 
-If you select the alternate endpoint because TLS port 443 is occupied:
+The default is archival on port 443. For another management IP or DNS name, provision matching TLS and pass CONSOLE_HOST. IPv4 hosts must be configured on the server; DNS names must resolve to it from management clients:
 
 ```bash
-CONSOLE_HTTPS_PORT=8443 bash /root/convox-console-package/deploy/install-rhel.sh
+CONSOLE_HOST=10.3.0.151 CONSOLE_HTTPS_PORT=443 bash /root/convox-console-package/deploy/install-rhel.sh
 ```
 
-The installer sets both the Nginx listener and backend origin to `https://10.3.0.150:8443`. Verify that SELinux labels this port for HTTP services with `semanage port -l | grep http_port_t`. Only add the appropriate port label if it is not already assigned. Do not reassign another service's port blindly.
+These are initial-install settings, not upgrade commands. Port 8443 is optional; the installer updates both listener and public origin. Verify its SELinux HTTP port label using `semanage port -l | grep http_port_t` before using a nonstandard port. Never reassign a port belonging to another service.
 
-## 5. Permit the proxy and management access
-
-If SELinux is enforcing, inspect the proxy permission:
+## 5. SELinux and management firewall
 
 ```bash
 getenforce
 getsebool httpd_can_network_connect
 ```
 
-Red Hat's documented Nginx reverse proxy setup uses:
+An enforcing reverse-proxy setup may require this under your server policy:
 
 ```bash
 setsebool -P httpd_can_network_connect 1
 ```
 
-This allows network connections from the web-server SELinux domain; it is broader than just this console proxy. Apply it under your server policy. Keep SELinux enforcing and inspect AVCs if access is denied.
+This permission covers outbound connections from the web-server SELinux domain, not only this console. Keep SELinux enforcing and inspect AVC denials rather than disabling it.
 
-For firewalld, identify the zone on the DR interface first:
-
-```bash
-firewall-cmd --get-active-zones
-```
-
-Use a management-restricted zone or source-specific rule for your actual VPN/management network. For a zone already restricted to management clients, add HTTPS to that zone:
+If firewalld runs, inspect `firewall-cmd --get-active-zones`. For a zone **already restricted to management clients**, substitute its real name:
 
 ```bash
 firewall-cmd --zone=YOUR_MANAGEMENT_ZONE --add-service=https
 firewall-cmd --permanent --zone=YOUR_MANAGEMENT_ZONE --add-service=https
 ```
 
-Replace the placeholder with the actual zone. For 8443, add `--add-port=8443/tcp` instead. Do not expose 4180 or publish the operator console to the internet. Existing routing/VPN access to `10.3.0.150` must already exist.
+Otherwise use a source-restricted rule for your approved VPN/management network. Nginx listens on all IPv4 interfaces on the selected HTTPS port, so firewall restrictions are important. Do not expose the console to the internet or open port 4180. Routing/VPN access to 10.3.0.151 must exist. For 8443, allow that TCP port instead.
 
 ## 6. Verify
 
 ```bash
 systemctl --no-pager --full status convox-dr-console nginx
 curl --fail --silent --output /dev/null http://127.0.0.1:4180/
-ss -lntp | grep -E ':(80|443|4180|8443)[[:space:]]'
+ss -lntp | grep -E ':(443|4180)[[:space:]]'
 journalctl -u convox-dr-console -n 40 --no-pager
+curl --cacert /etc/nginx/convox-console/server.crt -o /dev/null -w '%{http_code}\n' https://10.3.0.151/
 ```
 
-Verify unauthenticated access receives HTTP 401, using the actual certificate/CA trust chain:
+The last request should return **401** without credentials. For an internal CA, use the CA certificate instead of the leaf certificate. Open **https://10.3.0.151**, enter the operator login and confirm **Simulation workspace**. Verify a simulated action works without changing either ConVox server. For port 8443, include :8443 in URLs and checks.
 
-```bash
-curl --cacert /etc/nginx/convox-console/server.crt \
-  -o /dev/null -w '%{http_code}\n' https://10.3.0.150/
-```
+The browser Origin, forwarded Host and /etc/convox-console/console.env public origin must agree exactly. Default: CONVOX_PUBLIC_ORIGIN=https://10.3.0.151. If the endpoint changes later, update Nginx and this value, provision matching TLS, validate Nginx and restart the console. Do not rewrite browser Origin to bypass validation.
 
-For an internal CA, use the CA certificate instead of the leaf certificate for `--cacert`. With a trusted certificate, open `https://10.3.0.150` and enter the operator login. Verify that the page says Simulation workspace and that a simulation action succeeds without an Invalid origin error. For the alternate port, use `https://10.3.0.150:8443` in both checks.
+## Troubleshooting and removal
 
-Changing only `proxy_pass` is insufficient: the backend validates the browser Origin and Host. `/etc/convox-console/console.env` therefore contains `CONVOX_PUBLIC_ORIGIN=https://10.3.0.150`; update it and restart the console if the public URL changes. Do not rewrite browser Origin in Nginx to bypass this check.
+- Existing files: inspect before continuing; the installer refuses to overwrite controller history.
+- Nginx failure: run nginx -t and inspect port owners. Move obsolete backups outside included directories.
+- HTTP 502: inspect console service/journal, loopback listener and SELinux AVCs. Do not expose Node directly.
+- HTTP 403: URL, public origin and forwarded Host must match, including any nondefault port.
+- Login rejected: inspect password-file permissions and Nginx logs; keep authentication enabled.
+- Interrupted installation: inspect created files before any reload. No automatic rollback or upgrade is provided.
 
-## Troubleshooting / recovery
+To remove the route, move only /etc/nginx/conf.d/convox-dr-console.conf outside included directories, validate Nginx and reload. Stop/disable convox-dr-console.service separately, preserving /var/lib/convox-dr-console for history.
 
-- Duplicate default server: inspect all included files; keep backups outside included directories.
-- Address already in use: inspect the listener owners and existing virtual hosts. Preserve the ConVox HTTP service; use the alternate console TLS port if needed.
-- HTTP 502: verify the Node service, loopback listener and SELinux AVC records. Do not open Node's listener to all interfaces.
-- HTTP 403 Invalid origin/host: public origin, browser URL and forwarded Host must agree exactly, including non-default port.
-- Login rejected: inspect password-file access and Nginx error logs. Do not remove authentication to make the check pass.
-- Interrupted installer: inspect created files and `nginx -t` before any reload. The installer does not attempt an automatic rollback.
-
-To remove the console route safely, move only `/etc/nginx/conf.d/convox-dr-console.conf` to a backup directory outside the include path, validate Nginx, then reload. Stop/disable `convox-dr-console.service` separately. Preserve `/var/lib/convox-dr-console` if you need the operation history.
-
-Reference: [Red Hat Nginx reverse proxy configuration](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/deploying_web_servers_and_reverse_proxies/setting-up-and-configuring-nginx_deploying-web-servers-and-reverse-proxies), [Nginx proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), [Nginx HTTP Basic Authentication](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html).
+References: [Red Hat Nginx setup](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/deploying_web_servers_and_reverse_proxies/setting-up-and-configuring-nginx_deploying-web-servers-and-reverse-proxies), [Nginx proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), [Nginx Basic Authentication](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html).
