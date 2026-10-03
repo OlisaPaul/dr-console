@@ -6,7 +6,7 @@ A local management UI and durable backend for the two-server ConVox recovery wor
 2. Rebuild returning production from the current DR data as a read-only replica.
 3. Freeze DR, verify final database and file boundaries, cut over to production, and rebuild the DR standby.
 
-The shipped application is a **simulation prototype**, not a deployed failover solution. It demonstrates all three workflows and persists simulated records, roles, jobs and audit events. It makes no SSH connections and modifies neither ConVox server in its default mode. The live adapter is an integration boundary: real server hooks are not included because the deployment's actual RHEL workers, credentials, service definitions, and carrier routing have not yet been verified.
+The default application is a **simulation prototype**, not a deployed failover solution. It demonstrates all three workflows and persists simulated records, roles, jobs and audit events. It makes no SSH connections and modifies neither ConVox server in its default mode. Release 0.2 adds a separately provisioned **read-only SSH monitoring mode**; see [live status setup](deploy/LIVE_STATUS.md). Recovery execution remains an integration boundary: write-capable hooks are not included because the deployment's actual workers, safe_asterisk control, persistent fencing and carrier routing have not yet been verified.
 
 ## Run
 
@@ -18,6 +18,8 @@ npm start
 ```
 
 Open `http://127.0.0.1:4180`. The backend binds only to loopback. Use another port by setting `PORT` before startup.
+
+For access through Nginx on the independent archival management host at `https://10.3.0.151`, use [the RHEL deployment guide](deploy/RHEL_NGINX.md). It includes a systemd service, TLS/authenticated reverse proxy, and initial installer. The installer defaults to archival; `CONSOLE_HOST` can select another management IP or DNS name. Set `CONVOX_PUBLIC_ORIGIN` to the exact public origin; the backend continues rejecting other hosts and browser origins. Production stays `10.81.0.11` and DR stays `10.3.0.150`. The packaged default remains simulation mode.
 
 ```bash
 npm test
@@ -34,6 +36,12 @@ npm test
 7. Restart the console or refresh the page: the roles and records remain in `data/simulation/state.json`.
 
 Simulation does not prove the performance, licensing, network routing, or correctness of the actual ConVox installation. Simulation watermarks are integers, not MariaDB GTIDs.
+
+## Read-only live monitoring
+
+Use `CONVOX_MODE=observe` only after following [LIVE_STATUS.md](deploy/LIVE_STATUS.md). It uses a dedicated restricted SSH key, pinned host keys and a fixed unprivileged telemetry agent. Recovery endpoints reject operations in this mode before starting a job or contacting any mutation hook. Database status/identity failures remain unknown, and two writable databases generate a warning instead of fabricated healthy topology. File synchronization direction and completeness are never inferred from Lsyncd or replica lag. No application row values, SQL error text, passwords or private keys are returned to the UI.
+
+Use [upgrade-rhel.sh](deploy/upgrade-rhel.sh) for an existing archival installation; the initial installer intentionally refuses existing files. Upgrading code does not automatically switch modes or provision SSH access.
 
 ## Backend safety boundaries
 

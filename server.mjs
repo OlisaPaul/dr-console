@@ -5,17 +5,18 @@ import { readFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Controller } from './lib/controller.mjs';
 import { SimulationAdapter, HookAdapter } from './lib/adapters.mjs';
+import { allowedAddresses } from './lib/access.mjs';
+import { ReadOnlySshAdapter } from './lib/ssh-status.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4180);
 const mode = process.env.CONVOX_MODE || 'simulation';
-if (!['simulation', 'live'].includes(mode)) throw new Error('CONVOX_MODE must be simulation or live');
-const config = mode === 'live' ? JSON.parse(await readFile(path.join(root, 'config.local.json'), 'utf8')) : {};
-const adapter = mode === 'simulation' ? new SimulationAdapter() : new HookAdapter(config);
+if (!['simulation', 'observe', 'live'].includes(mode)) throw new Error('CONVOX_MODE must be simulation, observe or live');
+const config = mode !== 'simulation' ? JSON.parse(await readFile(process.env.CONVOX_CONFIG_FILE || path.join(root, 'config.local.json'), 'utf8')) : {};
+const adapter = mode === 'simulation' ? new SimulationAdapter() : mode === 'observe' ? new ReadOnlySshAdapter(config) : new HookAdapter(config);
 const controller = await new Controller({ dataDir: path.resolve(root, process.env.CONVOX_DATA_DIR || `data/${mode}`), adapter, mode }).init();
 const token = randomBytes(32).toString('hex');
-const origins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+const { origins, hosts } = allowedAddresses(port, process.env.CONVOX_PUBLIC_ORIGIN);
 const files = new Map([['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
 
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); }
