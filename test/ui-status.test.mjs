@@ -24,3 +24,21 @@ test('read-only overview renders unknown topology without demo claims or enabled
   assert.equal(main.innerHTML.includes('Demo records saved'), false);
   assert.equal((main.innerHTML.match(/data-action="(?:failover|rejoin|failback)" disabled/g) || []).length, 3);
 });
+
+test('control overview distinguishes real planned execution and pending manual routing from a completed recovery', () => {
+  const source = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const cutoff = source.lastIndexOf('try {\n  const session = await fetch');
+  const main = { innerHTML: '', addEventListener() {}, querySelectorAll: () => [], querySelector: () => null };
+  const node = { addEventListener() {} };
+  const document = { activeElement: null, querySelector: id => id === '#main' ? main : node, querySelectorAll: () => [] };
+  const view = initialState(); view.mode = 'control';
+  view.actions = Object.fromEntries(['failover', 'rejoin', 'failback'].map(a => [a, { allowed: false, reason: 'Not ready' }]));
+  view.jobs = [{ action: 'failover', state: 'awaiting-validation', steps: [{ title: 'Team validates calls', state: 'awaiting-validation' }] }];
+  vm.runInNewContext(source.slice(0, cutoff) + '\nstate = fixture; render();', { document, fixture: view, clearTimeout, setTimeout });
+  assert.match(main.innerHTML, /Live control · planned switchover/);
+  assert.match(main.innerHTML, /Run preflight checks/);
+  assert.match(main.innerHTML, /Awaiting team validation/);
+  assert.match(main.innerHTML, /data-action="validate"/);
+  assert.equal(main.innerHTML.includes('Simulation workspace'), false);
+  assert.equal(main.innerHTML.includes('Simulate production outage'), false);
+});

@@ -43,5 +43,17 @@ class ObserverTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             observer.rows("one\ttwo\nonly-one\n")
 
+    def test_missing_unit_does_not_hide_later_mariadb_and_lsyncd_units(self):
+        calls = []
+        def probe(args, **kwargs):
+            from types import SimpleNamespace
+            calls.append(args)
+            missing = args[2] == 'crond.service'
+            return SimpleNamespace(returncode=1 if missing else 0, stdout='LoadState=' + ('not-found' if missing else 'loaded') + '\nActiveState=inactive\nUnitFileState=disabled\n')
+        with patch.object(observer, 'run', return_value=''), patch.object(observer.subprocess, 'run', side_effect=probe):
+            units = observer.services()
+        self.assertEqual({u['name'] for u in units}, {'mariadb.service', 'crond.service', 'lsyncd.service'})
+        self.assertEqual(len(calls), 3)
+
 if __name__ == "__main__":
     unittest.main()

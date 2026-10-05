@@ -67,14 +67,14 @@ def services():
     if len(names) > 100:
         raise RuntimeError("Too many service units")
     result = []
-    # systemctl show may return nonzero for missing units but still provides their properties.
-    probe = subprocess.run(["/usr/bin/systemctl", "show", "--no-pager", "-p", "Id", "-p", "LoadState", "-p", "ActiveState", "-p", "UnitFileState"] + sorted(names), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=4, env=ENV, check=False)
-    if len(probe.stdout) > 262144:
-        raise RuntimeError("Service output too large")
-    for block in probe.stdout.strip().split("\n\n"):
-        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
-        if props.get("Id") in names:
-            result.append({"name": props["Id"], "load": props.get("LoadState", "error"), "active": props.get("ActiveState", "unknown"), "masked": props.get("UnitFileState", "").startswith("masked")})
+    # Probe each unit: some systemd versions stop a multi-unit show at the first
+    # missing name, hiding later units such as mariadb/lsyncd from the console.
+    for name in sorted(names):
+        probe = subprocess.run(["/usr/bin/systemctl", "show", name, "--no-pager", "-p", "LoadState", "-p", "ActiveState", "-p", "UnitFileState"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=1, env=ENV, check=False)
+        if len(probe.stdout) > 8192:
+            raise RuntimeError("Service output too large")
+        props = dict(line.split("=", 1) for line in probe.stdout.splitlines() if "=" in line)
+        result.append({"name": name, "load": props.get("LoadState", "error"), "active": props.get("ActiveState", "unknown"), "masked": props.get("UnitFileState", "").startswith("masked")})
     return result
 
 def collect():

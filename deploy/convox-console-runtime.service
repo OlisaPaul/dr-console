@@ -1,0 +1,20 @@
+[Unit]
+Description=Approved ConVox primary runtime (single Asterisk wrapper and vendor worker launcher)
+After=network-online.target mariadb.service php-fpm.service nginx.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/convox-console-agent/primary
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/libexec/convox-console-control --runtime
+Restart=no
+KillMode=control-group
+SendSIGKILL=no
+TimeoutStopSec=45
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

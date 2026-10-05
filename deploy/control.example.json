@@ -1,0 +1,8 @@
+{
+  "identityFile": "/etc/convox-console/ssh/control_ed25519",
+  "knownHostsFile": "/etc/convox-console/ssh/known_hosts",
+  "servers": {
+    "production": { "ip": "10.81.0.11", "serverId": 8111, "user": "convoxcontrol", "port": 22 },
+    "dr": { "ip": "10.3.0.150", "serverId": 30150, "user": "convoxcontrol", "port": 22 }
+  }
+}

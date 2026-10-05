@@ -19,6 +19,6 @@ for DIRECTORY in lib public; do
 done
 if command -v restorecon >/dev/null; then restorecon -RF /opt/convox-dr-console; fi
 systemctl start convox-dr-console
-curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 --output /dev/null http://127.0.0.1:4180/ || fail "Upgrade health check failed. Preserve $BACKUP_DIR and inspect journalctl -u convox-dr-console."
+curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 --output /dev/null http://127.0.0.1:4180/healthz || fail "Upgrade health check failed. Preserve $BACKUP_DIR and inspect journalctl -u convox-dr-console."
 printf 'Code upgraded. Configuration and state preserved. Backup: %s\n' "$BACKUP_DIR"
 printf 'Follow deploy/LIVE_STATUS.md to provision read-only monitoring. No mode was automatically changed.\n'

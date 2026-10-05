@@ -8,7 +8,7 @@ test('recovery hooks must preserve destination notifications as well as licence'
   let request;
   adapter.call = async payload => { request = payload; return { ok: true, preservedLocalTables: [...LOCAL_TABLES] }; };
   await adapter.execute(initialState(), 'rejoin', { key: 'preserve', host: 'production', title: 'Preserve local data' }, { jobId: 'fixture' });
-  assert.deepEqual(request.preserveLocalTables, ['convoxcces_global.convoxccs_license_details', 'convoxcces_global.convoxccs_notifications']);
+  assert.deepEqual(request.preserveLocalTables, ['convoxcces_global.convoxccs_license_details', 'convoxcces_global.convoxccs_notifications', 'convoxcces_global.convoxccs_servers', 'convoxcces_global.convoxccs_web_servers']);
   adapter.call = async () => ({ ok: true, preservedLocalTables: [LOCAL_TABLES[0]] });
   await assert.rejects(adapter.execute(initialState(), 'rejoin', { key: 'preserve', host: 'production' }, { jobId: 'fixture' }), /notification table preservation/);
 });
